@@ -320,6 +320,7 @@ const GROUP_COLOR = '#d97706';
 const isGroup = a => !!a && a.kind === 'group';
 const groupMembers = (s, g) => (g.members || []).map(id => s.accounts.find(x => same(x.id, id) && !isGroup(x))).filter(Boolean);
 const namedIds = a => a.identities.filter(i => String(i.name || '').trim());
+const isGroupMember = (s, a) => !isGroup(a) && s.accounts.some(g => isGroup(g) && (g.members || []).some(id => same(id, a.id)));
 const groupsOf = (s, a) => s.accounts.filter(g => isGroup(g) && (g.members || []).some(id => same(id, a.id)));
 function rowIdentities(s, a) {
   const L = isGroup(a) ? groupMembers(s, a).flatMap(m => { const n = namedIds(m); return n.length ? n.map(i => Object.assign({}, i, { name: `${i.name} (via ${m.name})` })) : [{ id: 'x' + m.id, name: `${m.name} (sans identité)`, status: 'Actif', role: '', justification: '', lastReview: '', nextReview: '', email: '', approvedBy: '', ticket: '', endDate: '' }]; }) : a.identities;
@@ -499,7 +500,7 @@ function analyze() {
   for (const s of data.servers) {
     const sl = s.name || '(sans nom)';
     for (const a of s.accounts) {
-      for (const i of a.identities) {
+      if (!isGroupMember(s, a)) for (const i of a.identities) {
         const k = norm(i.name) || '(sans nom)';
         if (!people.has(k)) people.set(k, { key: k, name: i.name || '(sans nom)', email: '', entries: [] });
         const p = people.get(k); if (!p.email && i.email) p.email = i.email;
@@ -646,6 +647,7 @@ function visibleTree() {
     const sQ = !q || txt(s.name, s.os, s.software, s.entity, s.owner, s.criticality).includes(q);
     const accs = [];
     for (const a of s.accounts) {
+      if (isGroupMember(s, a)) continue;
       const aQ = sQ || txt(a.name, a.rights, a.typeAccess, a.authMethod, a.typeAccount).includes(q);
       const ids = isGroup(a) ? groupMembers(s, a).filter(m => (aQ || txt(m.name, ...m.identities.map(i => i.name)).includes(q)) && (!only || A.acc(s.id, m.id).length > 0)) : a.identities.filter(i => (aQ || txt(i.name, i.role, i.justification, i.email, i.approvedBy).includes(q)) && (!only || A.id(s.id, a.id, i.id).length > 0));
       const aOwn = only ? A.acc(s.id, a.id).length > 0 : true;
@@ -966,7 +968,7 @@ function personLeaver(key) {
 function personRevoke(key) {
   const p = A.people.find(x => x.key === key); if (!p) return;
   if (!confirm(`Retirer définitivement les ${p.entries.length} accès de ${p.name} de la cartographie ?\n\nÀ faire uniquement après suppression effective sur les systèmes.`)) return;
-  p.entries.forEach(({ s, a, i, via }) => { if (via) return; a.identities = a.identities.filter(x => x !== i); log('Accès retiré', `${p.name} → ${s.name} › ${a.name}`); });
+  p.entries.forEach(({ s, a, i, via }) => { if (via) { via.identities = via.identities.filter(x => x !== i); log('Accès retiré', `${p.name} → ${s.name} › ${via.name} (membre de ${a.name})`); return; } a.identities = a.identities.filter(x => x !== i); log('Accès retiré', `${p.name} → ${s.name} › ${a.name}`); });
   ui.selected = null;
   commit('Accès retirés');
 }
@@ -1196,7 +1198,8 @@ function renderDrawer() {
   if (type === 'server') {
     props = prop('Entité', val(s.entity)) + prop('Criticité', val(s.criticality)) + prop("Système d'exploitation", val(s.os)) + prop('Logiciel / service', val(s.software)) + prop("Propriétaire de l'actif", val(s.owner)) + prop('Notes', val(s.notes));
     findings = A.srvAll(s.id);
-    children = `<h4>Comptes et groupes (${s.accounts.length})</h4><ul class="list children">${s.accounts.map(x => { const w = worst(A.accAll(s.id, x.id)); return `<li data-action="goto" data-ref="${esc(refKey({ sid: s.id, aid: x.id }))}"><span class="dot" style="background:${w ? SEV[w].color : 'var(--ok)'};margin-top:6px"></span><div><div class="t">${esc(x.name)}${groupPill(x)}</div><div class="d">${esc([isGroup(x) ? '' : x.typeAccount, isGroup(x) ? '' : x.authMethod, `${x.identities.length} titulaire(s)`].filter(Boolean).join(' · '))}</div></div></li>`; }).join('') || '<li class="muted small" style="cursor:default">Aucun compte.</li>'}</ul>`;
+    const direct = s.accounts.filter(x => !isGroupMember(s, x));
+    children = `<h4>Comptes et groupes (${direct.length})</h4><ul class="list children">${direct.map(x => { const w = worst(A.accAll(s.id, x.id)); return `<li data-action="goto" data-ref="${esc(refKey({ sid: s.id, aid: x.id }))}"><span class="dot" style="background:${w ? SEV[w].color : 'var(--ok)'};margin-top:6px"></span><div><div class="t">${esc(x.name)}${groupPill(x)}</div><div class="d">${esc([isGroup(x) ? '' : x.typeAccount, isGroup(x) ? '' : x.authMethod, `${x.identities.length} titulaire(s)`].filter(Boolean).join(' · '))}</div></div></li>`; }).join('') || '<li class="muted small" style="cursor:default">Aucun compte.</li>'}</ul>`;
   } else if (type === 'account' && grp) {
     const pv = typeof a.privileged === 'boolean' ? (a.privileged ? 'Oui' : 'Non') : (isPriv(a) ? 'Oui (déduit du type d\'accès)' : 'Non (déduit du type d\'accès)');
     props = prop('Droits du groupe', val(a.rights)) + prop("Type d'accès", val(a.typeAccess)) + prop('Groupe à privilèges', esc(pv))
@@ -1522,6 +1525,7 @@ function exportCSV() {
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [cols.map(q).join(';')];
   data.servers.forEach(s => s.accounts.forEach(a => {
+    if (isGroupMember(s, a)) return;
     const base = [s.entity, s.name, s.criticality, s.os, s.software, s.owner, isGroup(a) ? 'Groupe' : 'Compte', a.name, a.rights, a.typeAccess, isPriv(a) ? 'Oui' : 'Non', a.typeAccount, a.authMethod, isStrong(a) ? 'Oui' : 'Non', a.unjustified ? 'Non' : 'Oui', a.status];
     const rows = rowIdentities(s, a);
     rows.forEach(i => {
@@ -1533,7 +1537,7 @@ function exportCSV() {
   download(`inventaire-acces-${todayISO()}.csv`, '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   toast('Export CSV réussi');
 }
-function fullTree() { return data.servers.map(s => ({ s, accs: s.accounts.map(a => ({ a, ids: isGroup(a) ? groupMembers(s, a) : a.identities })) })); }
+function fullTree() { return data.servers.map(s => ({ s, accs: s.accounts.filter(a => !isGroupMember(s, a)).map(a => ({ a, ids: isGroup(a) ? groupMembers(s, a) : a.identities })) })); }
 function exportDrawio() {
   if (!data.servers.length) return toast('Rien à exporter');
   const saved = ui.collapsed; ui.collapsed = new Set();
@@ -1679,7 +1683,7 @@ async function generateAuditPDF(o) {
   if (o.incInventory) {
     ctx.section('Inventaire détaillé des accès');
     const body = [];
-    data.servers.forEach(s => s.accounts.forEach(a => rowIdentities(s, a).forEach(i => {
+    data.servers.forEach(s => s.accounts.filter(a => !isGroupMember(s, a)).forEach(a => rowIdentities(s, a).forEach(i => {
       const st2 = i ? reviewState(i, a) : null, f = i ? [...A.acc(s.id, a.id), ...A.id(s.id, a.id, i.id)] : A.acc(s.id, a.id);
       body.push([`${s.name}${s.entity ? '\n' + s.entity : ''}${s.criticality ? '\nCrit. ' + s.criticality : ''}`, `${a.name}${a.rights ? '\n' + a.rights : ''}`, `${isGroup(a) ? 'Groupe' : (a.typeAccount || '-')}${isPriv(a) ? '\nPrivilégié' : ''}${isActiveAccount(a) ? '' : '\nDésactivé'}`,
         `${a.authMethod || '-'}${a.unjustified ? '\nNON JUSTIFIÉ' : ''}`, i ? `${i.name}${norm(i.status) !== 'actif' ? '\n(' + i.status + ')' : ''}` : 'AUCUN TITULAIRE',

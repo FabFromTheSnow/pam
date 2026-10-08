@@ -23,13 +23,14 @@ header.app{display:flex;align-items:center;gap:16px;padding:10px 18px;background
 .logo{width:36px;height:36px;border-radius:10px;background:var(--primary-50);color:var(--primary);display:grid;place-items:center;flex:none}
 .brand-title{font-weight:700;font-size:15px;white-space:nowrap}
 .brand-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.filters{display:flex;gap:8px;align-items:center;flex:1;min-width:280px}
+.filters{display:flex;gap:8px;align-items:center;flex:1 1 520px;min-width:0;flex-wrap:wrap}
+.filters select{max-width:190px}
 .filters input[type=search]{flex:1;min-width:160px;max-width:380px}
 input,select,textarea{border:1px solid var(--border-strong);border-radius:8px;padding:7px 10px;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s;max-width:100%}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary)}
 input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,.15)}
 .switch{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap;cursor:pointer}
-.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border-strong);background:#fff;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap;transition:background .15s,border-color .15s}
 .btn:hover{background:var(--surface-2);border-color:var(--faint)}
 .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
@@ -215,10 +216,12 @@ select.dec.d-Révoquer{border-color:#fca5a5;background:#fef2f2}
   <div class="filters">
     <input id="search" type="search" placeholder="Rechercher serveur, compte, personne…  ( / )" autocomplete="off">
     <select id="entityFilter" title="Filtrer par entité"></select>
+    <select id="assetFilter" title="Type d'actif"><option value="">Serveurs et SaaS</option><option value="server">Serveurs</option><option value="saas">SaaS</option></select>
     <label class="switch"><input type="checkbox" id="onlyIssues"> Constats uniquement</label>
   </div>
   <div class="actions">
     <button class="btn primary" data-action="add-server">+ Serveur</button>
+    <button class="btn primary" data-action="add-saas" style="background:#0891b2;border-color:#0891b2">+ SaaS</button>
     <div class="menu">
       <button class="btn" data-menu>Importer ▾</button>
       <div class="menu-list">
@@ -266,6 +269,7 @@ select.dec.d-Révoquer{border-color:#fca5a5;background:#fef2f2}
     </div>
     <div class="legend">
       <span><i style="background:var(--server)"></i>Serveur</span>
+      <span><i style="background:#0891b2"></i>SaaS</span>
       <span><i style="background:var(--account)"></i>Compte</span>
       <span><i style="background:#d97706"></i>Groupe</span>
       <span><i style="background:var(--identity)"></i>Titulaire</span>
@@ -326,7 +330,10 @@ function rowIdentities(s, a) {
   const L = isGroup(a) ? groupMembers(s, a).flatMap(m => { const n = namedIds(m); return n.length ? n.map(i => Object.assign({}, i, { name: `${i.name} (via ${m.name})` })) : [{ id: 'x' + m.id, name: `${m.name} (sans identité)`, status: 'Actif', role: '', justification: '', lastReview: '', nextReview: '', email: '', approvedBy: '', ticket: '', endDate: '' }]; }) : a.identities;
   return L.length ? L : [null];
 }
-const nodeColor = nd => nd.type === 'account' && isGroup(nd.a) ? GROUP_COLOR : TYPE_COLOR[nd.type];
+const isSaas = s => !!s && s.assetType === 'saas';
+const SAAS_COLOR = '#0891b2';
+const saasPill = s => isSaas(s) ? ' <span class="pill" style="background:#cffafe;color:#0e7490">SaaS</span>' : '';
+const nodeColor = nd => nd.type === 'account' && isGroup(nd.a) ? GROUP_COLOR : nd.type === 'server' && isSaas(nd.s) ? SAAS_COLOR : TYPE_COLOR[nd.type];
 const groupPill = a => isGroup(a) ? ' <span class="pill" style="background:#fef3c7;color:#b45309">GROUPE</span>' : '';
 const CONTROLS = {
   'A.5.3':  ['Séparation des tâches', ''],
@@ -344,6 +351,8 @@ function defaultSettings() {
   return {
     osList: ['Windows Server 2022', 'Ubuntu 22.04', 'Debian 12'],
     softwareList: ['SQL Server', 'Apache', 'Nginx'],
+    vendorList: [],
+    idpList: [],
     typeAccessList: ['Administration', 'Lecture seule', 'Application'],
     authMethodList: ['MFA', 'Mot de passe', 'Certificat', 'SSO'],
     typeAccountList: ['Personnel', 'Partagé', 'Service', 'Application'],
@@ -420,11 +429,12 @@ function normalize(raw) {
   d.servers = d.servers.filter(s => s && typeof s === 'object');
   d.servers.forEach(s => {
     if (s.id == null) s.id = uid();
-    strFields(s, ['name', 'os', 'software', 'entity', 'criticality', 'owner', 'notes']);
+    strFields(s, ['name', 'os', 'software', 'entity', 'criticality', 'owner', 'notes', 'url', 'vendor', 'idp']);
+    s.assetType = s.assetType === 'saas' ? 'saas' : 'server';
     s.accounts = Array.isArray(s.accounts) ? s.accounts.filter(a => a && typeof a === 'object') : [];
     s.accounts.forEach(a => {
       if (a.id == null) a.id = uid();
-      strFields(a, ['name', 'rights', 'typeAccess', 'authMethod', 'typeAccount', 'status', 'notes']);
+      strFields(a, ['name', 'rights', 'typeAccess', 'authMethod', 'typeAccount', 'status', 'notes', 'lastLogin']);
       if (!a.status) a.status = 'Actif';
       if (typeof a.unjustified !== 'boolean') a.unjustified = false;
       if (a.kind !== 'group') delete a.kind; else a.members = Array.isArray(a.members) ? a.members : [];
@@ -450,7 +460,7 @@ function normalize(raw) {
 
 let data = normalize({});
 let A = null; // résultat d'analyse courant
-const ui = { tab: 'dashboard', selected: null, collapsed: new Set(), search: '', entity: '', onlyIssues: false,
+const ui = { asset: '', tab: 'dashboard', selected: null, collapsed: new Set(), search: '', entity: '', onlyIssues: false,
   sort: { key: 'issues', dir: -1 }, vb: null, findSev: new Set(Object.keys(SEV)), findCtrl: '', hlPerson: null };
 
 const S = () => data.settings;
@@ -483,7 +493,7 @@ function addToList(listKey, value) {
 }
 function syncListChanges() {
   data.servers.forEach(s => {
-    addToList('osList', s.os); addToList('softwareList', s.software); addToList('entityList', s.entity); addToList('approverList', s.owner);
+    addToList('vendorList', s.vendor); addToList('idpList', s.idp); addToList('osList', s.os); addToList('softwareList', s.software); addToList('entityList', s.entity); addToList('approverList', s.owner);
     s.accounts.forEach(a => {
       addToList('typeAccessList', a.typeAccess); addToList('authMethodList', a.authMethod); addToList('typeAccountList', a.typeAccount);
       a.identities.forEach(i => { addToList('userList', i.name); addToList('roleList', i.role); addToList('approverList', i.approvedBy); addToList('justificationList', i.justification); });
@@ -644,6 +654,7 @@ function visibleTree() {
   const q = norm(ui.search), only = ui.onlyIssues, res = [];
   for (const s of data.servers) {
     if (ui.entity && s.entity !== ui.entity) continue;
+    if (!(!ui.asset || (ui.asset === 'saas') === isSaas(s))) continue;
     const sQ = !q || txt(s.name, s.os, s.software, s.entity, s.owner, s.criticality).includes(q);
     const accs = [];
     for (const a of s.accounts) {
@@ -682,7 +693,7 @@ function renderDashboard() {
   const authRows = Object.entries(st.auth).sort((a, b) => b[1] - a[1]).map(([m, v]) => ({ label: m, value: v, color: S().strongAuthList.map(norm).includes(norm(m)) ? 'var(--ok)' : 'var(--crit)' }));
   el.innerHTML = `
   <div class="grid kpis">
-    ${kpi('Serveurs', st.servers, `${st.entityCount} entité(s)`)}
+    ${kpi('Actifs', st.servers, `${data.servers.filter(x => !isSaas(x)).length} serveur(s) · ${data.servers.filter(isSaas).length} SaaS · ${st.entityCount} entité(s)`)}
     ${kpi('Comptes', st.accounts, `${st.priv} privilégié(s) actif(s)`)}
     ${kpi('Personnes', st.persons, `${st.lines} accès attribués`)}
     ${kpi('Score de conformité', pct(st.score), 'accès sans constat moyen ou plus', toneFor(st.score))}
@@ -753,6 +764,11 @@ function nodeFindings(nd) {
 }
 function nodeTexts(nd) {
   const { s, a, i } = nd;
+  if (nd.type === 'server' && isSaas(s)) return {
+    t1: s.name || '(sans nom)', saas: true,
+    t2: [s.vendor, s.url].filter(Boolean).join(' · ') || 'Application SaaS',
+    t3: [s.entity, s.criticality ? 'Criticité ' + s.criticality : '', s.idp ? 'IdP ' + s.idp : '', `${s.accounts.filter(x => !isGroup(x)).length} compte(s)`].filter(Boolean).join(' · ')
+  };
   if (nd.type === 'server') return {
     t1: s.name || '(sans nom)',
     t2: [s.os, s.software].filter(Boolean).join(' · ') || 'OS / logiciel non renseigné',
@@ -826,6 +842,11 @@ function nodeSvg(nd) {
     o += `<circle cx="${W - 20}" cy="18" r="11" fill="${SEV[wAll].color}"/><text x="${W - 20}" y="22" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">${all.length > 99 ? '99+' : all.length}</text>`;
     rx = W - 36;
   }
+  if (nd.type === 'server' && T.saas && !all.length) {
+    o += `<rect x="${W - 46}" y="10" width="36" height="16" rx="8" fill="#cffafe"/><text x="${W - 28}" y="21.5" font-size="9.5" font-weight="700" fill="#0e7490" text-anchor="middle">SaaS</text>`;
+  } else if (nd.type === 'server' && T.saas) {
+    o += `<rect x="${W - 74}" y="10" width="36" height="16" rx="8" fill="#cffafe"/><text x="${W - 56}" y="21.5" font-size="9.5" font-weight="700" fill="#0e7490" text-anchor="middle">SaaS</text>`;
+  }
   if (nd.type === 'account' && T.group) {
     o += `<rect x="${rx - 54}" y="10" width="54" height="16" rx="8" fill="#fef3c7"/><text x="${rx - 27}" y="21.5" font-size="9.5" font-weight="700" fill="#b45309" text-anchor="middle">GROUPE</text>`;
   } else if (nd.type === 'account' && isPriv(a)) {
@@ -845,7 +866,7 @@ function renderMap() {
   const L = layout(tree);
   const maxX = Math.max(COLX[2], ...L.nodes.map(n => n.x)), hasMembers = maxX >= COLX[3];
   mapBounds = { w: maxX + MW + 30, h: Math.max(L.height, 200) };
-  let o = ['Serveurs', 'Comptes / groupes', 'Titulaires / membres', 'Identités des membres'].slice(0, hasMembers ? 4 : 3).map((t, k) => `<text x="${COLX[k] + 4}" y="20" font-size="11" font-weight="700" fill="#94a0b4" letter-spacing="1.2">${t.toUpperCase()}</text>`).join('');
+  let o = ['Serveurs / SaaS', 'Comptes / groupes', 'Titulaires / membres', 'Identités des membres'].slice(0, hasMembers ? 4 : 3).map((t, k) => `<text x="${COLX[k] + 4}" y="20" font-size="11" font-weight="700" fill="#94a0b4" letter-spacing="1.2">${t.toUpperCase()}</text>`).join('');
   L.groups.forEach(g => { o += `<rect x="${COLX[0] - 12}" y="${g.y0}" width="${maxX + MW - COLX[0] + 28}" height="${g.y1 - g.y0}" rx="14" fill="${g.i % 2 ? '#f1f4fa' : '#fbfcfe'}" stroke="#e3e8f0"/>`; });
   L.edges.forEach(([p, c]) => {
     const x1 = p.x + MW, y1 = p.cy, x2 = c.x, y2 = c.cy, mx = (x1 + x2) / 2;
@@ -907,9 +928,9 @@ const critRank = c => { const L = S().criticalityList.map(norm); const k = L.ind
 function rowFindings(r) { return r.i ? [...A.acc(r.s.id, r.a.id), ...A.id(r.s.id, r.a.id, r.i.id)] : A.acc(r.s.id, r.a.id); }
 const INV_COLS = [
   { k: 'entity', l: 'Entité', v: r => r.s.entity },
-  { k: 'server', l: 'Serveur', v: r => r.s.name, html: r => `<b>${esc(r.s.name)}</b><br><small>${esc([r.s.os, r.s.software].filter(Boolean).join(' · '))}</small>` },
+  { k: 'server', l: 'Serveur / SaaS', v: r => r.s.name, html: r => `<b>${esc(r.s.name)}</b>${saasPill(r.s)}<br><small>${esc(isSaas(r.s) ? [r.s.vendor, r.s.url].filter(Boolean).join(' · ') : [r.s.os, r.s.software].filter(Boolean).join(' · '))}</small>` },
   { k: 'crit', l: 'Criticité', v: r => r.s.criticality, sv: r => critRank(r.s.criticality) },
-  { k: 'account', l: 'Compte', v: r => r.a.name, html: r => `<b>${esc(r.a.name)}</b>${groupPill(r.a)}${isActiveAccount(r.a) ? '' : ' <span class="pill" style="background:#e2e8f0;color:#475569">Désactivé</span>'}<br><small>${esc(r.a.rights)}</small>` },
+  { k: 'account', l: 'Compte', v: r => r.a.name, html: r => `<b>${esc(r.a.name)}</b>${groupPill(r.a)}${r.a.lastLogin ? `<br><small>dernière connexion : ${fmtDate(r.a.lastLogin)}</small>` : ''}${isActiveAccount(r.a) ? '' : ' <span class="pill" style="background:#e2e8f0;color:#475569">Désactivé</span>'}<br><small>${esc(r.a.rights)}</small>` },
   { k: 'priv', l: 'Priv.', v: r => isPriv(r.a) ? 'Oui' : 'Non' },
   { k: 'unjust', l: 'Justifié', v: r => r.a.unjustified ? 1 : 0, html: r => { const ref = esc(refKey({ sid: r.s.id, aid: r.a.id })); return `<label class="check" style="white-space:nowrap"><input type="checkbox" data-kind="justif" data-val="j" data-ref="${ref}"${r.a.unjustified ? '' : ' checked'}> Justifié</label><label class="check" style="white-space:nowrap;margin-top:4px"><input type="checkbox" data-kind="justif" data-val="n" data-ref="${ref}"${r.a.unjustified ? ' checked' : ''}> Non justifié</label>`; } },
   { k: 'type', l: 'Type', v: r => isGroup(r.a) ? 'Groupe' : r.a.typeAccount },
@@ -939,7 +960,7 @@ function renderInventory() {
 function initials(n) { return String(n).split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'; }
 function renderPeople() {
   const el = $('#tab-people'), q = norm(ui.search);
-  let people = A.people.map(p => ({ p, entries: p.entries.filter(e => !ui.entity || e.s.entity === ui.entity) })).filter(x => x.entries.length);
+  let people = A.people.map(p => ({ p, entries: p.entries.filter(e => (!ui.entity || e.s.entity === ui.entity) && (!ui.asset || (ui.asset === 'saas') === isSaas(e.s))) })).filter(x => x.entries.length);
   if (q) people = people.filter(({ p, entries }) => norm(p.name).includes(q) || norm(p.email).includes(q) || entries.some(e => txt(e.s.name, e.a.name, e.i.role).includes(q)));
   if (ui.onlyIssues) people = people.filter(({ p }) => p.issues.length);
   people.sort((x, y) => { const wx = worst(x.p.issues), wy = worst(y.p.issues); return (wy ? SEV[wy].rank : 0) - (wx ? SEV[wx].rank : 0) || y.p.privCount - x.p.privCount || x.p.name.localeCompare(y.p.name, 'fr'); });
@@ -979,7 +1000,7 @@ function filteredFindings() {
   return A.findings.filter(f => {
     if (!ui.findSev.has(f.sev)) return false;
     if (ui.findCtrl && !f.controls.includes(ui.findCtrl)) return false;
-    if (ui.entity) { if (f.ref.person || f.ref.global) return false; const s = getServer(f.ref.sid); if (!s || s.entity !== ui.entity) return false; }
+    if (ui.entity || ui.asset) { if (f.ref.person || f.ref.global) return false; const s = getServer(f.ref.sid); if (!s || (ui.entity && s.entity !== ui.entity) || !(!ui.asset || (ui.asset === 'saas') === isSaas(s))) return false; }
     if (q && !txt(f.title, f.detail, f.controls.join(' ')).includes(q)) return false;
     return true;
   });
@@ -1045,6 +1066,7 @@ function newCampaign() {
       { key: 'reviewer', label: 'Réviseur (propriétaire / manager)', required: true },
       { key: 'dueDate', label: 'Échéance', type: 'date' },
       { key: 'entity', label: 'Entité', type: 'select', options: [['', 'Toutes'], ...S().entityList] },
+      { key: 'asset', label: "Type d'actif", type: 'select', options: [['', 'Serveurs et SaaS'], ['server', 'Serveurs uniquement'], ['saas', 'SaaS uniquement']] },
       { key: 'scope', label: 'Accès concernés', type: 'select', options: [['priv', 'Accès privilégiés uniquement'], ['all', 'Tous les accès']] },
       { key: 'onlyDue', label: `Uniquement les accès à revoir (en retard, jamais revus ou échéance ≤ ${S().dueSoonDays} j)`, type: 'checkbox', full: true }
     ],
@@ -1054,6 +1076,7 @@ function newCampaign() {
       const items = [];
       data.servers.forEach(s => {
         if (v.entity && s.entity !== v.entity) return;
+        if (v.asset && (v.asset === 'saas') !== isSaas(s)) return;
         s.accounts.forEach(a => {
           if (!isActiveAccount(a) || (v.scope === 'priv' && !isPriv(a))) return;
           a.identities.forEach(i => {
@@ -1065,7 +1088,7 @@ function newCampaign() {
         });
       });
       if (!items.length) { alert('Aucun accès dans ce périmètre.'); return false; }
-      const scopeLabel = `${v.entity || 'toutes entités'}, ${v.scope === 'priv' ? 'accès privilégiés' : 'tous les accès'}${v.onlyDue ? ', accès à revoir uniquement' : ''}`;
+      const scopeLabel = `${v.asset === 'saas' ? 'SaaS, ' : v.asset === 'server' ? 'serveurs, ' : ''}${v.entity || 'toutes entités'}, ${v.scope === 'priv' ? 'accès privilégiés' : 'tous les accès'}${v.onlyDue ? ', accès à revoir uniquement' : ''}`;
       data.reviews.unshift({ id: uid(), name: v.name, reviewer: v.reviewer, dueDate: v.dueDate, scopeLabel, status: 'open', createdAt: t, closedAt: '', items });
       log('Campagne de revue créée', `${v.name} (${items.length} accès, réviseur : ${v.reviewer})`);
       commit('Campagne créée');
@@ -1191,12 +1214,14 @@ function renderDrawer() {
     dr.classList.add('open'); return;
   }
   const grp = isGroup(a);
-  const labels = { server: 'Serveur', account: grp ? 'Groupe' : 'Compte', identity: grp ? 'Membre du groupe' : 'Titulaire' };
+  const labels = { server: isSaas(s) ? 'Application SaaS' : 'Serveur', account: grp ? 'Groupe' : 'Compte', identity: grp ? 'Membre du groupe' : 'Titulaire' };
   const crumbs = [`<a data-action="goto" data-ref="${esc(refKey({ sid: s.id }))}">${esc(s.name)}</a>`];
   if (a) crumbs.push(`<a data-action="goto" data-ref="${esc(refKey({ sid: s.id, aid: a.id }))}">${esc(a.name)}</a>`);
   let props = '', findings, children = '', extra = '';
   if (type === 'server') {
-    props = prop('Entité', val(s.entity)) + prop('Criticité', val(s.criticality)) + prop("Système d'exploitation", val(s.os)) + prop('Logiciel / service', val(s.software)) + prop("Propriétaire de l'actif", val(s.owner)) + prop('Notes', val(s.notes));
+    props = isSaas(s)
+      ? prop('Éditeur', val(s.vendor)) + prop('URL / tenant', s.url ? `<a href="${esc(/^https?:\/\//i.test(s.url) ? s.url : 'https://' + s.url)}" target="_blank" rel="noopener" style="color:var(--primary)">${esc(s.url)}</a>` : val('')) + prop("Fournisseur d'identité (SSO)", val(s.idp)) + prop('Entité', val(s.entity)) + prop('Criticité', val(s.criticality)) + prop('Propriétaire applicatif', val(s.owner)) + prop('Notes', val(s.notes))
+      : prop('Entité', val(s.entity)) + prop('Criticité', val(s.criticality)) + prop("Système d'exploitation", val(s.os)) + prop('Logiciel / service', val(s.software)) + prop("Propriétaire de l'actif", val(s.owner)) + prop('Notes', val(s.notes));
     findings = A.srvAll(s.id);
     const direct = s.accounts.filter(x => !isGroupMember(s, x));
     children = `<h4>Comptes et groupes (${direct.length})</h4><ul class="list children">${direct.map(x => { const w = worst(A.accAll(s.id, x.id)); return `<li data-action="goto" data-ref="${esc(refKey({ sid: s.id, aid: x.id }))}"><span class="dot" style="background:${w ? SEV[w].color : 'var(--ok)'};margin-top:6px"></span><div><div class="t">${esc(x.name)}${groupPill(x)}</div><div class="d">${esc([isGroup(x) ? '' : x.typeAccount, isGroup(x) ? '' : x.authMethod, `${x.identities.length} titulaire(s)`].filter(Boolean).join(' · '))}</div></div></li>`; }).join('') || '<li class="muted small" style="cursor:default">Aucun compte.</li>'}</ul>`;
@@ -1212,6 +1237,7 @@ function renderDrawer() {
     const gs = groupsOf(s, a);
     props = (gs.length ? prop('Membre des groupes', gs.map(g => `<a style="color:var(--primary);cursor:pointer" data-action="goto" data-ref="${esc(refKey({ sid: s.id, aid: g.id }))}">${esc(g.name)}</a>`).join(', ')) : '') + prop('Privilèges', val(a.rights)) + prop("Type d'accès", val(a.typeAccess)) + prop('Compte à privilèges', esc(pv)) + prop('Type de compte', val(a.typeAccount))
       + prop('Authentification', `${val(a.authMethod)} ${a.authMethod ? (isStrong(a) ? '<span class="pill" style="background:#dcfce7;color:#15803d">forte</span>' : '<span class="pill" style="background:#fee2e2;color:#b91c1c">faible</span>') : ''}`)
+      + (a.lastLogin ? prop('Dernière connexion', fmtDate(a.lastLogin)) : '')
       + prop('Justification du compte', a.unjustified ? '<span class="pill" style="background:#fee2e2;color:#b91c1c">Non justifié</span>' : '<span class="pill" style="background:#dcfce7;color:#15803d">Justifié</span>') + prop('Statut', esc(a.status)) + prop('Notes', val(a.notes));
     findings = A.accAll(s.id, a.id);
     children = `<h4>Titulaires (${a.identities.length})</h4><ul class="list children">${a.identities.map(x => { const st = reviewState(x, a); return `<li data-action="goto" data-ref="${esc(refKey({ sid: s.id, aid: a.id, iid: x.id }))}"><div style="flex:1"><div class="t">${esc(x.name)}</div><div class="d">${esc([x.role, x.justification].filter(Boolean).join(' · ') || '—')}</div></div>${norm(x.status) === 'actif' ? reviewPill(st.key) : statusPill(x.status)}</li>`; }).join('') || '<li class="muted small" style="cursor:default">Aucun titulaire — compte orphelin.</li>'}</ul>`;
@@ -1224,7 +1250,7 @@ function renderDrawer() {
     const af = A.acc(s.id, a.id);
     if (af.length) extra = `<h4>Constats sur ${grp ? 'le groupe' : 'le compte'} ${esc(a.name)}</h4>${af.map(findingBlock).join('')}`;
   }
-  dr.innerHTML = `<div class="drawer-head"><div style="min-width:0"><div class="type-chip" style="color:${type === 'account' && grp ? GROUP_COLOR : TYPE_COLOR[type]}">${labels[type]}</div>
+  dr.innerHTML = `<div class="drawer-head"><div style="min-width:0"><div class="type-chip" style="color:${type === 'account' && grp ? GROUP_COLOR : type === 'server' && isSaas(s) ? SAAS_COLOR : TYPE_COLOR[type]}">${labels[type]}</div>
       <h2 style="${type === 'account' && isUnjust(a) ? 'color:#b91c1c' : ''}">${esc(i ? i.name : a ? a.name : s.name)}${type === 'account' && isUnjust(a) ? ' <span class="pill" style="background:#dc2626;color:#fff;vertical-align:middle">Non justifié</span>' : ''}</h2><div class="crumbs">${crumbs.join(' › ')}</div></div>
       <button class="x" data-action="close-drawer" title="Fermer (Échap)">×</button></div>
     <div class="drawer-body"><dl class="props">${props}</dl>
@@ -1287,6 +1313,16 @@ const serverFields = () => [
   { key: 'owner', label: "Propriétaire de l'actif", type: 'datalist', list: 'approverList', help: 'Personne qui valide les accès lors des revues' },
   { key: 'notes', label: 'Notes', type: 'textarea', full: true }
 ];
+const saasFields = () => [
+  { key: 'name', label: 'Application', required: true, placeholder: 'CRM, messagerie, outil RH…' },
+  { key: 'vendor', label: 'Éditeur', type: 'datalist', list: 'vendorList' },
+  { key: 'url', label: 'URL / tenant', placeholder: 'https://app.exemple.com' },
+  { key: 'idp', label: "Fournisseur d'identité (SSO)", type: 'datalist', list: 'idpList', help: 'Vide si comptes locaux uniquement' },
+  { key: 'entity', label: 'Entité', type: 'datalist', list: 'entityList' },
+  { key: 'criticality', label: 'Criticité', type: 'select', options: [['', '—'], ...S().criticalityList] },
+  { key: 'owner', label: 'Propriétaire applicatif', type: 'datalist', list: 'approverList', help: 'Personne qui valide les accès lors des revues' },
+  { key: 'notes', label: 'Notes', type: 'textarea', full: true }
+];
 const accountFields = () => [
   { key: 'name', label: 'Nom du compte', required: true, placeholder: 'adm-jdupont' },
   { key: 'rights', label: 'Privilèges', placeholder: 'Admins du domaine, sudo…' },
@@ -1295,6 +1331,7 @@ const accountFields = () => [
   { key: 'typeAccount', label: 'Type de compte', type: 'datalist', list: 'typeAccountList' },
   { key: 'authMethod', label: "Méthode d'authentification", type: 'datalist', list: 'authMethodList' },
   { key: 'status', label: 'Statut', type: 'select', options: ACCOUNT_STATUS },
+  { key: 'lastLogin', label: 'Dernière connexion', type: 'date', help: 'Utile pour repérer les comptes inactifs (SaaS notamment)' },
   { key: 'unjustified', label: 'Justification du compte', type: 'excl', full: true },
   { key: 'notes', label: 'Notes', type: 'textarea', full: true }
 ];
@@ -1320,19 +1357,24 @@ const identityFields = () => [
   { key: 'endDate', label: 'Date de fin (départ / fin de mission)', type: 'date' },
   { key: 'notes', label: 'Notes', type: 'textarea', full: true }
 ];
-function editServer(s) {
-  const isNew = !s, fields = serverFields();
-  openForm({ title: isNew ? 'Ajouter un serveur' : 'Modifier le serveur', fields, values: s || { entity: ui.entity }, submitLabel: isNew ? 'Ajouter' : 'Enregistrer',
+function editServer(s, asSaas) {
+  const saas = s ? isSaas(s) : !!asSaas, noun = saas ? 'application SaaS' : 'serveur';
+  const isNew = !s, fields = saas ? saasFields() : serverFields();
+  openForm({ title: isNew ? `Ajouter une ${saas ? 'application SaaS' : 'serveur'}`.replace('une serveur', 'un serveur') : `Modifier ${saas ? "l'application SaaS" : 'le serveur'}`, fields, values: s || { entity: ui.entity }, submitLabel: isNew ? 'Ajouter' : 'Enregistrer',
     onSubmit: v => {
       learnLists(fields, v);
-      if (isNew) { const ns = Object.assign({ id: uid() }, v, { accounts: [] }); data.servers.push(ns); ui.selected = { sid: ns.id }; log('Serveur ajouté', v.name); }
-      else { Object.assign(s, v); log('Serveur modifié', v.name); }
-      commit(isNew ? 'Serveur ajouté' : 'Serveur modifié');
+      if (isNew) { const ns = Object.assign({ id: uid(), assetType: saas ? 'saas' : 'server', os: '', software: '', url: '', vendor: '', idp: '' }, v, { accounts: [] }); data.servers.push(ns); ui.selected = { sid: ns.id }; log(saas ? 'Application SaaS ajoutée' : 'Serveur ajouté', v.name); }
+      else { Object.assign(s, v); log(saas ? 'Application SaaS modifiée' : 'Serveur modifié', v.name); }
+      commit(isNew ? (saas ? 'Application SaaS ajoutée' : 'Serveur ajouté') : (saas ? 'Application SaaS modifiée' : 'Serveur modifié'));
     } });
 }
 function editAccount(s, a, asGroup) {
   const grp = a ? isGroup(a) : !!asGroup, noun = grp ? 'groupe' : 'compte';
   const isNew = !a, fields = grp ? groupFields() : accountFields();
+  if (isSaas(s) && !grp) fields.forEach(f => {
+    if (f.key === 'name') { f.label = 'Compte / identifiant'; f.placeholder = 'prenom.nom@exemple.fr'; }
+    if (f.key === 'rights') { f.label = 'Rôle applicatif'; f.placeholder = 'Owner, Admin global, Facturation…'; }
+  });
   const values = a ? Object.assign({}, a, { privileged: a.privileged === true ? 'oui' : a.privileged === false ? 'non' : 'auto' }) : { status: 'Actif', privileged: 'auto' };
   openForm({ title: isNew ? `Ajouter un ${noun} sur ${s.name}` : `Modifier le ${noun}`, fields, values, submitLabel: isNew ? 'Ajouter' : 'Enregistrer',
     onSubmit: v => {
@@ -1418,7 +1460,7 @@ function markReviewed() {
 /* ---------------- Paramètres & aide ---------------- */
 const LIST_KEYS = [
   ['userList', 'Utilisateurs'], ['approverList', 'Approbateurs'],
-  ['entityList', 'Entités'], ['criticalityList', 'Niveaux de criticité (du plus au moins critique)'], ['osList', "Systèmes d'exploitation"], ['softwareList', 'Logiciels'],
+  ['entityList', 'Entités'], ['criticalityList', 'Niveaux de criticité (du plus au moins critique)'], ['osList', "Systèmes d'exploitation"], ['softwareList', 'Logiciels'], ['vendorList', 'Éditeurs SaaS'], ['idpList', "Fournisseurs d'identité (SSO)"],
   ['typeAccessList', "Types d'accès"], ['privilegedAccessList', "Types d'accès considérés comme privilégiés"], ['authMethodList', "Méthodes d'authentification"],
   ['strongAuthList', 'Méthodes considérées comme fortes'], ['typeAccountList', 'Types de compte'], ['roleList', 'Rôles'], ['justificationList', 'Justifications']
 ];
@@ -1466,6 +1508,8 @@ function clearAll() {
 function openHelp() {
   showModal(`<div class="wrap"><div class="modal-head"><h3>Guide — cartographie & revue des accès privilégiés</h3><button class="x" data-action="close-modal">×</button></div>
   <div class="modal-body help">
+    <h4>Serveurs et applications SaaS</h4>
+    <p>« + Serveur » et « + SaaS » créent les deux types d'actifs. Une application SaaS fonctionne comme un serveur : comptes (identifiant / e-mail, rôle applicatif), groupes, titulaires, revues et campagnes. Renseignez l'éditeur, l'URL du tenant, le fournisseur d'identité (SSO) et la date de dernière connexion des comptes pour repérer les accès inactifs. Le filtre « Serveurs / SaaS » de l'en-tête et le périmètre des campagnes permettent de revoir les deux séparément.</p>
     <h4>Démarche recommandée</h4>
     <ol><li><b>Inventorier</b> chaque serveur / application (entité, criticité, propriétaire), ses comptes à privilèges et leurs titulaires.</li>
     <li><b>Qualifier</b> chaque compte : type (personnel, partagé, service…), méthode d'authentification ; « Justifié » est coché par défaut, cocher « Non justifié » pour tout compte sans besoin identifié.</li>
@@ -1520,13 +1564,13 @@ function exportJSON() {
   save(); toast('Export JSON réussi');
 }
 function exportCSV() {
-  const cols = ['Entité', 'Serveur', 'Criticité', 'OS', 'Logiciel', 'Propriétaire actif', 'Nature', 'Compte / groupe', 'Privilèges', "Type d'accès", 'Compte à privilèges', 'Type de compte', 'Authentification', 'Auth. forte', 'Justifié', 'Statut compte',
+  const cols = ['Entité', "Type d'actif", 'Serveur / application', 'Criticité', 'OS', 'Logiciel', 'Éditeur', 'URL', 'IdP', 'Propriétaire actif', 'Nature', 'Compte / groupe', 'Privilèges', "Type d'accès", 'Compte à privilèges', 'Type de compte', 'Authentification', 'Auth. forte', 'Justifié', 'Statut compte', 'Dernière connexion',
     'Titulaire', 'E-mail', 'Rôle', 'Justification', 'Approbateur', 'Réf. demande', 'Dernière revue', 'Prochaine revue', 'État revue', 'Statut titulaire', 'Date de fin', 'Nb constats', 'Constats'];
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [cols.map(q).join(';')];
   data.servers.forEach(s => s.accounts.forEach(a => {
     if (isGroupMember(s, a)) return;
-    const base = [s.entity, s.name, s.criticality, s.os, s.software, s.owner, isGroup(a) ? 'Groupe' : 'Compte', a.name, a.rights, a.typeAccess, isPriv(a) ? 'Oui' : 'Non', a.typeAccount, a.authMethod, isStrong(a) ? 'Oui' : 'Non', a.unjustified ? 'Non' : 'Oui', a.status];
+    const base = [s.entity, isSaas(s) ? 'SaaS' : 'Serveur', s.name, s.criticality, s.os, s.software, s.vendor, s.url, s.idp, s.owner, isGroup(a) ? 'Groupe' : 'Compte', a.name, a.rights, a.typeAccess, isPriv(a) ? 'Oui' : 'Non', a.typeAccount, a.authMethod, isStrong(a) ? 'Oui' : 'Non', a.unjustified ? 'Non' : 'Oui', a.status, a.lastLogin];
     const rows = rowIdentities(s, a);
     rows.forEach(i => {
       const f = i ? [...A.acc(s.id, a.id), ...A.id(s.id, a.id, i.id)] : A.acc(s.id, a.id);
@@ -1542,13 +1586,13 @@ function exportDrawio() {
   if (!data.servers.length) return toast('Rien à exporter');
   const saved = ui.collapsed; ui.collapsed = new Set();
   const L = layout(fullTree()); ui.collapsed = saved;
-  const fills = { server: ['#f5f3ff', '#7c3aed'], account: ['#eff6ff', '#2563eb'], identity: ['#ecfdf5', '#059669'], member: ['#eef2ff', '#4f46e5'] };
+  const fills = { server: ['#f5f3ff', '#7c3aed'], saas: ['#ecfeff', '#0891b2'], account: ['#eff6ff', '#2563eb'], identity: ['#ecfdf5', '#059669'], member: ['#eef2ff', '#4f46e5'] };
   let id = 2, cells = ''; const ids = new Map();
   L.nodes.forEach(nd => {
     const cid = id++; ids.set(nd, cid);
     const T = nodeTexts(nd), { all } = nodeFindings(nd), w = worst(all);
     const html = `<b>${esc(T.t1)}</b><br><font color="#5f6b7f">${esc(T.t2)}</font><br><font color="#94a0b4">${esc([T.t3, T.t3b].filter(Boolean).join(' · '))}</font>${all.length ? `<br><font color="${SEV[w].color}"><b>${all.length} constat(s) — ${SEV[w].label}</b></font>` : ''}`;
-    const style = `rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=10;arcSize=12;fillColor=${nd.type === 'account' && isUnjust(nd.a) ? '#fee2e2' : nd.type === 'account' && isGroup(nd.a) ? '#fef3c7' : fills[nd.type][0]};strokeColor=${nd.type === 'account' && isUnjust(nd.a) ? '#dc2626' : w && SEV[w].rank >= 3 && nd.type !== 'server' ? SEV[w].color : fills[nd.type][1]};fontSize=11;`;
+    const style = `rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=10;arcSize=12;fillColor=${nd.type === 'account' && isUnjust(nd.a) ? '#fee2e2' : nd.type === 'account' && isGroup(nd.a) ? '#fef3c7' : nd.type === 'server' && isSaas(nd.s) ? fills.saas[0] : fills[nd.type][0]};strokeColor=${nd.type === 'account' && isUnjust(nd.a) ? '#dc2626' : w && SEV[w].rank >= 3 && nd.type !== 'server' ? SEV[w].color : fills[nd.type][1]};fontSize=11;`;
     cells += `<mxCell id="${cid}" value="${esc(html)}" style="${style}" vertex="1" parent="1"><mxGeometry x="${nd.x}" y="${Math.round(nd.cy - 40)}" width="${MW}" height="80" as="geometry"/></mxCell>`;
   });
   L.edges.forEach(([p, c]) => { cells += `<mxCell id="${id++}" style="edgeStyle=entityRelationEdgeStyle;endArrow=none;html=1;strokeColor=#94a3b8;" edge="1" parent="1" source="${ids.get(p)}" target="${ids.get(c)}"><mxGeometry relative="1" as="geometry"/></mxCell>`; });
@@ -1685,7 +1729,7 @@ async function generateAuditPDF(o) {
     const body = [];
     data.servers.forEach(s => s.accounts.filter(a => !isGroupMember(s, a)).forEach(a => rowIdentities(s, a).forEach(i => {
       const st2 = i ? reviewState(i, a) : null, f = i ? [...A.acc(s.id, a.id), ...A.id(s.id, a.id, i.id)] : A.acc(s.id, a.id);
-      body.push([`${s.name}${s.entity ? '\n' + s.entity : ''}${s.criticality ? '\nCrit. ' + s.criticality : ''}`, `${a.name}${a.rights ? '\n' + a.rights : ''}`, `${isGroup(a) ? 'Groupe' : (a.typeAccount || '-')}${isPriv(a) ? '\nPrivilégié' : ''}${isActiveAccount(a) ? '' : '\nDésactivé'}`,
+      body.push([`${isSaas(s) ? '[SaaS] ' : ''}${s.name}${s.entity ? '\n' + s.entity : ''}${s.criticality ? '\nCrit. ' + s.criticality : ''}`, `${a.name}${a.rights ? '\n' + a.rights : ''}`, `${isGroup(a) ? 'Groupe' : (a.typeAccount || '-')}${isPriv(a) ? '\nPrivilégié' : ''}${isActiveAccount(a) ? '' : '\nDésactivé'}`,
         `${a.authMethod || '-'}${a.unjustified ? '\nNON JUSTIFIÉ' : ''}`, i ? `${i.name}${norm(i.status) !== 'actif' ? '\n(' + i.status + ')' : ''}` : 'AUCUN TITULAIRE',
         i ? [i.role, i.justification].filter(Boolean).join('\n') || '-' : '', i ? [i.approvedBy, i.ticket].filter(Boolean).join('\n') || '-' : '',
         i ? fmtDate(i.lastReview) : '', i ? `${fmtDate(st2.next)}\n${st2.label}` : '', String(f.length)].map(P));
@@ -1773,14 +1817,18 @@ function demoData() {
       { name: 'root', rights: 'root', typeAccess: 'Administration', authMethod: 'Mot de passe', typeAccount: 'Personnel', identities: [
         { name: 'Marie Martin', role: 'DevOps', justification: 'Urgence', lastReview: m(-3), nextReview: m(3), approvedBy: 'Jean Dupont' },
         { name: 'Paul Bernard', role: 'DBA', justification: 'Urgence' }] }] },
-    { name: 'SRV-BACKUP-01', entity: 'Entité A', criticality: 'Élevée', os: 'Windows Server 2022', software: 'Sauvegarde', accounts: [] }
+    { name: 'SRV-BACKUP-01', entity: 'Entité A', criticality: 'Élevée', os: 'Windows Server 2022', software: 'Sauvegarde', accounts: [] },
+    { name: 'CRM (exemple)', assetType: 'saas', vendor: 'Éditeur exemple', url: 'https://crm.exemple.com', idp: 'SSO entreprise', entity: 'Entité B', criticality: 'Élevée', owner: 'Direction commerciale', accounts: [
+      { name: 'j.dupont@exemple.fr', rights: 'Administrateur global', typeAccess: 'Administration', authMethod: 'SSO', typeAccount: 'Personnel', lastLogin: addDays(t, -3), identities: [
+        { name: 'Jean Dupont', role: 'Admin système', justification: 'Maintenance', lastReview: m(-2), nextReview: m(4), approvedBy: 'Direction' }] },
+      { name: 'ancien.commercial@exemple.fr', rights: 'Utilisateur', typeAccess: 'Lecture seule', authMethod: 'Mot de passe', typeAccount: 'Personnel', lastLogin: m(-7), unjustified: true, identities: [] }] }
   ] };
 }
 
 /* ---------------- Événements globaux ---------------- */
 function closeMenus() { document.querySelectorAll('.menu.open').forEach(m => m.classList.remove('open')); }
 const actions = {
-  'add-server': () => editServer(null),
+  'add-server': () => editServer(null), 'add-saas': () => editServer(null, true),
   'import-json': () => $('#fileInput').click(),
   'import-b64': importB64,
   'load-demo': () => {
@@ -1833,6 +1881,7 @@ document.addEventListener('change', e => {
 });
 let searchTimer;
 $('#search').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { ui.search = e.target.value; ui.vb = null; renderView(); }, 160); });
+$('#assetFilter').addEventListener('change', e => { ui.asset = e.target.value; ui.vb = null; renderView(); });
 $('#entityFilter').addEventListener('change', e => { ui.entity = e.target.value; ui.vb = null; renderView(); });
 $('#onlyIssues').addEventListener('change', e => { ui.onlyIssues = e.target.checked; ui.vb = null; renderView(); });
 /* ---- Listes déroulantes : toutes les options à l'ouverture, filtre seulement à la frappe ---- */
